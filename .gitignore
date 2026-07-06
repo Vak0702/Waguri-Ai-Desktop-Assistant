@@ -1,0 +1,23 @@
+# Secrets — never commit this. .env.example (safe template) IS committed.
+.env
+
+# Virtual environment
+venv/
+
+# Python cache/bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Debug/log output
+waguri_debug*
+
+# Personal data generated at runtime (reminders, notes)
+memory/*.json
+memory/*.db
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

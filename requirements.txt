@@ -1,0 +1,41 @@
+# --- GUI ---
+PyQt6>=6.6.0
+
+# --- LLM ---
+# Free tier (default): Google Gemini — current unified SDK
+google-genai>=1.4.0
+# Free, fast alternative — chat only, no vision
+groq>=0.13.0
+# Paid alternative — only needed if you set LLM_PROVIDER=anthropic in .env
+anthropic>=0.40.0
+python-dotenv>=1.0.0
+
+# --- Speech-to-text ---
+faster-whisper>=1.0.0
+sounddevice>=0.4.6
+numpy>=1.24.0
+
+# --- Text-to-speech ---
+edge-tts>=6.1.0
+soundfile>=0.12.1
+pyttsx3>=2.90          # offline TTS fallback
+
+# --- Wake word (fallback mode needs nothing extra beyond faster-whisper above;
+#     uncomment below if you switch WAKE_WORD_MODE to "openwakeword") ---
+# openwakeword>=0.5.1
+
+# --- Screen analysis ---
+mss>=9.0.1
+Pillow>=10.0.0
+
+# --- System vitals / control ---
+psutil>=5.9.0
+pyautogui>=0.9.54
+
+# --- Media control (Windows) ---
+pycaw>=20230407; sys_platform == 'win32'
+comtypes>=1.2.0; sys_platform == 'win32'
+keyboard>=0.13.5
+
+# --- Notifications ---
+plyer>=2.1.0
