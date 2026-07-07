@@ -22,6 +22,8 @@ class Intent(Enum):
     APP_CONTROL_OPEN = auto()
     APP_CONTROL_CLOSE = auto()
     SCREEN_ANALYSIS = auto()
+    TAKE_SCREENSHOT = auto()   # save a screenshot to disk (distinct from analyzing screen content)
+    WEATHER = auto()
     MEDIA_CONTROL = auto()
     FILE_SEARCH = auto()
     REMINDER = auto()
@@ -42,10 +44,17 @@ _VITALS_PATTERNS = re.compile(
 )
 _OPEN_PATTERN = re.compile(r"\bopen\s+(.+)", re.I)
 _CLOSE_PATTERN = re.compile(r"\b(close|quit|kill)\s+(.+)", re.I)
+# Checked before _SCREEN_PATTERN since "screenshot" would otherwise also
+# get caught as a screen-analysis request. Whisper frequently transcribes
+# "screenshot" as two separate words ("screen shot"), so this matches both
+# spellings, standalone or in a fuller phrase like "take a screenshot".
+_SCREENSHOT_PATTERN = re.compile(r"\bscreen\s?shot\b|\bcapture (the |my )?screen\b", re.I)
 _SCREEN_PATTERN = re.compile(
     r"\b(what'?s on my screen|screen|read this|analyze this|summarize this|what am i looking at)\b",
     re.I
 )
+_WEATHER_PATTERN = re.compile(r"\b(weather|forecast)\b", re.I)
+_WEATHER_CITY_PATTERN = re.compile(r"\b(?:weather|forecast)(?: report)?\s+(?:in|for|at)\s+(.+)", re.I)
 _MEDIA_PATTERN = re.compile(
     r"\b(volume|mute|unmute|play|pause|next track|previous track|skip)\b", re.I
 )
@@ -136,8 +145,18 @@ def route(text: str) -> RoutedIntent:
     if _VITALS_PATTERNS.search(t):
         return RoutedIntent(Intent.SYSTEM_VITALS, {"raw": t})
 
+    # Checked before SCREEN_PATTERN so "take a screenshot" doesn't get
+    # routed to screen analysis instead.
+    if _SCREENSHOT_PATTERN.search(t):
+        return RoutedIntent(Intent.TAKE_SCREENSHOT, {"raw": t})
+
     if _SCREEN_PATTERN.search(t):
         return RoutedIntent(Intent.SCREEN_ANALYSIS, {"raw": t, "question": t})
+
+    if _WEATHER_PATTERN.search(t):
+        city_match = _WEATHER_CITY_PATTERN.search(t)
+        city = city_match.group(1).strip() if city_match else None
+        return RoutedIntent(Intent.WEATHER, {"raw": t, "city": city})
 
     if _MEDIA_PATTERN.search(t):
         return RoutedIntent(Intent.MEDIA_CONTROL, {"raw": t})

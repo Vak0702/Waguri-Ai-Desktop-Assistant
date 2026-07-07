@@ -25,6 +25,8 @@ API tiers by default.
   providers** for chat vs. vision (mix free services, no single point of failure)
 - 🔇 Noise-reduced, vocabulary-biased speech recognition for better accuracy
 
+- Screenshot , waguri can take screenshots (just say "take screenshots")
+
 ## Setup
 
 ### 1. Install Python dependencies

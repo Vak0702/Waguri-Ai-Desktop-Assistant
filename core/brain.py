@@ -12,7 +12,7 @@ from collections import deque
 import config
 from core.intent_router import route, Intent
 from core.llm_client import LLMClient
-from skills import system_vitals, app_control, screen_analysis, media_control, file_ops, reminders_notes
+from skills import system_vitals, app_control, screen_analysis, media_control, file_ops, reminders_notes, screenshot, weather
 
 
 SYSTEM_PROMPT = """You are Waguri, a personal desktop AI voice assistant.
@@ -49,6 +49,10 @@ class Brain:
                 reply = app_control.close_app(routed.payload["target"])
             elif routed.intent == Intent.SCREEN_ANALYSIS:
                 reply = screen_analysis.analyze(routed.payload["question"], self.llm)
+            elif routed.intent == Intent.TAKE_SCREENSHOT:
+                reply = screenshot.take_screenshot()
+            elif routed.intent == Intent.WEATHER:
+                reply = self._handle_weather(routed.payload)
             elif routed.intent == Intent.MEDIA_CONTROL:
                 reply = media_control.handle(routed.payload["raw"])
             elif routed.intent == Intent.FILE_SEARCH:
@@ -76,6 +80,34 @@ class Brain:
     def _remember(self, user_text: str, reply: str):
         self.history.append({"role": "user", "content": user_text})
         self.history.append({"role": "assistant", "content": reply})
+
+    # ---------- weather (location-consent gated) ----------
+
+    def _handle_weather(self, payload: dict) -> str:
+        city = payload.get("city")
+        if city:
+            # Explicit place named — no location access needed at all.
+            return weather.get_weather_for_city(city)
+
+        consent = weather.get_location_consent()
+        if consent is None:
+            # Never asked before — ask now, reusing the same yes/no
+            # confirmation mechanism used for destructive system actions.
+            self._pending_confirmation = self._resolve_weather_consent
+            return ("I don't have permission to check your location yet. I'd use your "
+                    "approximate location based on your IP address, not GPS. Say yes to "
+                    "allow it, or just tell me a specific city instead.")
+        elif consent is False:
+            return ("I don't have permission to check your location. Say 'yes' to enable "
+                    "it, or ask for the weather in a specific city.")
+        else:
+            return weather.get_weather_for_current_location()
+
+    def _resolve_weather_consent(self, confirmed: bool) -> str:
+        weather.set_location_consent(confirmed)
+        if confirmed:
+            return weather.get_weather_for_current_location()
+        return "Okay, I won't check your location. You can always ask for weather in a specific city."
 
     # ---------- destructive action confirmation flow ----------
 

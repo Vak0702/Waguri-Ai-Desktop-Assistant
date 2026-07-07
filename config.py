@@ -10,10 +10,10 @@ load_dotenv()
 
 # --- LLM backend ---
 # Pick a provider independently for chat vs. screen analysis — you can use
-# different API keys/services for each. "gemini" | "groq" | "anthropic".
+# different API keys/services for each. "gemini" | "groq" | "anthropic" | "openrouter".
 # Only groq lacks vision support (so don't set VISION_PROVIDER=groq).
 CHAT_PROVIDER = os.getenv("CHAT_PROVIDER", "groq")
-VISION_PROVIDER = os.getenv("VISION_PROVIDER", "gemini")
+VISION_PROVIDER = os.getenv("VISION_PROVIDER", "openrouter")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-6")
@@ -25,6 +25,10 @@ GEMINI_VISION_MODEL = os.getenv("GEMINI_VISION_MODEL", "gemini-2.5-flash")
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")  # chat only, no vision
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-4-maverick:free")
+OPENROUTER_VISION_MODEL = os.getenv("OPENROUTER_VISION_MODEL", "meta-llama/llama-4-maverick:free")
 
 # --- Wake word ---
 WAKE_WORD = "hello"
@@ -52,3 +56,4 @@ IDLE_TIMEOUT_SECONDS = 8            # seconds of silence before returning to idl
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMORY_DB_PATH = os.path.join(BASE_DIR, "memory", "waguri_memory.db")
 NOTES_PATH = os.path.join(BASE_DIR, "memory", "notes.json")
+SETTINGS_PATH = os.path.join(BASE_DIR, "memory", "settings.json")
