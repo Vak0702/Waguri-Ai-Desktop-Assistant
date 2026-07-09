@@ -69,3 +69,37 @@ def _summary() -> str:
     if battery is not None:
         parts.append(f"battery at {battery.percent:.0f} percent")
     return "Here's the rundown: " + ", ".join(parts) + "."
+
+
+def quick_health_check(chat_available: bool = True, vision_available: bool = True) -> str | None:
+    """Fast, silent-unless-something's-wrong system check — run once right
+    after wake word detection so Waguri can proactively flag real problems
+    (low battery, resource pressure, a missing/broken LLM connection)
+    instead of you finding out mid-command. Returns None if everything
+    looks fine, so the wake greeting stays short on a normal day."""
+    issues = []
+
+    cpu = psutil.cpu_percent(interval=0.2)
+    if cpu > 90:
+        issues.append(f"CPU usage is quite high, at {cpu:.0f} percent")
+
+    mem = psutil.virtual_memory()
+    if mem.percent > 90:
+        issues.append(f"memory usage is quite high, at {mem.percent:.0f} percent")
+
+    disk = psutil.disk_usage("/")
+    if disk.percent > 95:
+        issues.append(f"you're almost out of disk space, at {disk.percent:.0f} percent used")
+
+    battery = psutil.sensors_battery()
+    if battery is not None and battery.percent < 15 and not battery.power_plugged:
+        issues.append(f"your battery is low, at {battery.percent:.0f} percent and not charging")
+
+    if not chat_available:
+        issues.append("I don't have a working connection for conversation right now")
+    if not vision_available:
+        issues.append("I don't have a working connection for screen analysis right now")
+
+    if not issues:
+        return None
+    return "Heads up — " + "; ".join(issues) + "."

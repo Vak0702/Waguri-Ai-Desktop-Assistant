@@ -29,7 +29,8 @@ class Intent(Enum):
     REMINDER = auto()
     SYSTEM_POWER = auto()      # shutdown / restart / sleep / lock — destructive, needs confirm
     END_CONVERSATION = auto()  # user signals they're done talking to Waguri (not a PC power action)
-    GUI_CONTROL = auto()       # window UI actions: fullscreen, minimize, minimal mode, mute mic
+    GUI_CONTROL = auto()       # Waguri's own window UI: fullscreen, minimize, minimal mode, mute
+    WINDOW_CONTROL = auto()    # OTHER apps' windows: snap left/right, maximize/minimize, list
     CHAT = auto()              # fallback: general LLM conversation
 
 
@@ -88,6 +89,56 @@ _GUI_SHOW_CONTROLS_PATTERN = re.compile(
 )
 _GUI_MUTE_MIC_PATTERN = re.compile(r"\bmute (yourself|your ?self|your mic|the mic)\b", re.I)
 
+# Controls for OTHER applications' windows (not Waguri's own orb window).
+# The literal word "window" is the required disambiguator — "minimize" alone
+# means Waguri's own window (GUI_CONTROL above); "minimize this window"
+# means whatever app is currently focused. These checks run *before*
+# GUI_CONTROL's bare minimize/fullscreen patterns for that reason.
+_WINDOW_SNAP_LEFT_PATTERN = re.compile(r"\b(snap|move) (this |the |my )?window (to the )?left\b", re.I)
+_WINDOW_SNAP_RIGHT_PATTERN = re.compile(r"\b(snap|move) (this |the |my )?window (to the )?right\b", re.I)
+_WINDOW_MAXIMIZE_PATTERN = re.compile(r"\bmaximize (this |the |my )?(current )?window\b", re.I)
+_WINDOW_MINIMIZE_PATTERN = re.compile(r"\bminimize (this |the |my )?(current )?window\b", re.I)
+_WINDOW_SHOW_ALL_PATTERN = re.compile(
+    r"\b(show( me)? (all )?(my )?open windows|show task view|task view)\b", re.I
+)
+_WINDOW_LIST_PATTERN = re.compile(
+    r"\b(list( my)? open windows|what windows are open|what('s| is) open)\b", re.I
+)
+
+_ORDINAL_WORDS = {
+    "first": 1, "1st": 1, "second": 2, "2nd": 2, "third": 3, "3rd": 3,
+    "fourth": 4, "4th": 4, "fifth": 5, "5th": 5, "sixth": 6, "6th": 6,
+    "seventh": 7, "7th": 7, "eighth": 8, "8th": 8, "ninth": 9, "9th": 9,
+    "tenth": 10, "10th": 10,
+}
+# Ordinal-based window switching ("switch to the second window", "go to
+# window 3") — checked *before* the generic name-based _WINDOW_SWITCH_PATTERN
+# below, since that broader pattern would otherwise treat "second" itself
+# as a literal window name to search for and fail to find it.
+_WINDOW_ORDINAL_WORD_PATTERN = re.compile(
+    r"\b(?:go to|switch to|navigate to|focus(?: on)?)\s+(?:the\s+)?"
+    r"(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|"
+    r"1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)\s+window\b",
+    re.I
+)
+_WINDOW_ORDINAL_NUM_PATTERN = re.compile(
+    r"\b(?:go to|switch to|navigate to|focus(?: on)?)\s+(?:the\s+)?window\s+(?:number\s+)?(\d+)\b",
+    re.I
+)
+# "switch to X" / "navigate to X" / "go to X window" — brings a specific
+# window to the foreground by (fuzzy) title match.
+_WINDOW_SWITCH_PATTERN = re.compile(
+    r"\b(switch to|navigate to|go to|bring up|focus)\s+(?:the\s+)?(.+?)(?:\s+window)?$", re.I
+)
+# Checked before the generic app-closing _CLOSE_PATTERN so "close this
+# window" doesn't get treated as "close an app named 'this window'".
+_WINDOW_CLOSE_CURRENT_PATTERN = re.compile(r"\bclose (this|the current) window\b", re.I)
+
+_DESKTOP_NEW_PATTERN = re.compile(r"\b(open|create) (a )?new desktop\b", re.I)
+_DESKTOP_NEXT_PATTERN = re.compile(r"\b(switch to|go to) (the )?next desktop\b", re.I)
+_DESKTOP_PREV_PATTERN = re.compile(r"\b(switch to|go to) (the )?(previous|last) desktop\b", re.I)
+_DESKTOP_CLOSE_PATTERN = re.compile(r"\bclose (this|the current) desktop\b", re.I)
+
 
 def _clean_app_target(raw_target: str) -> str:
     """
@@ -120,6 +171,54 @@ def route(text: str) -> RoutedIntent:
 
     # GUI control checked early and before MEDIA_PATTERN specifically so
     # "mute yourself" doesn't get caught by the system-volume mute pattern.
+    # Window-management for OTHER apps, checked before GUI_CONTROL's own
+    # minimize pattern — "minimize this window" (some other app) needs to
+    # win over the more general "minimize" (Waguri's own window) below.
+    if _WINDOW_SNAP_LEFT_PATTERN.search(t):
+        return RoutedIntent(Intent.WINDOW_CONTROL, {"raw": t, "action": "snap_left"})
+    if _WINDOW_SNAP_RIGHT_PATTERN.search(t):
+        return RoutedIntent(Intent.WINDOW_CONTROL, {"raw": t, "action": "snap_right"})
+    if _WINDOW_MAXIMIZE_PATTERN.search(t):
+        return RoutedIntent(Intent.WINDOW_CONTROL, {"raw": t, "action": "maximize"})
+    if _WINDOW_MINIMIZE_PATTERN.search(t):
+        return RoutedIntent(Intent.WINDOW_CONTROL, {"raw": t, "action": "minimize"})
+    if _WINDOW_SHOW_ALL_PATTERN.search(t):
+        return RoutedIntent(Intent.WINDOW_CONTROL, {"raw": t, "action": "show_all"})
+    if _WINDOW_LIST_PATTERN.search(t):
+        return RoutedIntent(Intent.WINDOW_CONTROL, {"raw": t, "action": "list_windows"})
+    if _WINDOW_CLOSE_CURRENT_PATTERN.search(t):
+        return RoutedIntent(Intent.WINDOW_CONTROL, {"raw": t, "action": "close_window"})
+
+    # Desktop-specific checks must come before the generic window-switch
+    # pattern below, since "switch to the next desktop" would otherwise be
+    # swallowed by "switch to X" and treated as a window name to find.
+    if _DESKTOP_NEW_PATTERN.search(t):
+        return RoutedIntent(Intent.WINDOW_CONTROL, {"raw": t, "action": "new_desktop"})
+    if _DESKTOP_NEXT_PATTERN.search(t):
+        return RoutedIntent(Intent.WINDOW_CONTROL, {"raw": t, "action": "next_desktop"})
+    if _DESKTOP_PREV_PATTERN.search(t):
+        return RoutedIntent(Intent.WINDOW_CONTROL, {"raw": t, "action": "prev_desktop"})
+    if _DESKTOP_CLOSE_PATTERN.search(t):
+        return RoutedIntent(Intent.WINDOW_CONTROL, {"raw": t, "action": "close_desktop"})
+
+    ordinal_word_match = _WINDOW_ORDINAL_WORD_PATTERN.search(t)
+    if ordinal_word_match:
+        ordinal = _ORDINAL_WORDS.get(ordinal_word_match.group(1).lower())
+        if ordinal:
+            return RoutedIntent(Intent.WINDOW_CONTROL,
+                                 {"raw": t, "action": "switch_to_ordinal", "ordinal": ordinal})
+
+    ordinal_num_match = _WINDOW_ORDINAL_NUM_PATTERN.search(t)
+    if ordinal_num_match:
+        return RoutedIntent(Intent.WINDOW_CONTROL,
+                             {"raw": t, "action": "switch_to_ordinal", "ordinal": int(ordinal_num_match.group(1))})
+
+    switch_match = _WINDOW_SWITCH_PATTERN.search(t)
+    if switch_match:
+        target = switch_match.group(2).strip()
+        if target:
+            return RoutedIntent(Intent.WINDOW_CONTROL, {"raw": t, "action": "switch_to", "target": target})
+
     if _GUI_MUTE_MIC_PATTERN.search(t):
         return RoutedIntent(Intent.GUI_CONTROL, {"raw": t, "action": "mute_mic"})
     if _GUI_HIDE_CONTROLS_PATTERN.search(t):

@@ -27,6 +27,9 @@ API tiers by default.
 
 - Screenshot , waguri can take screenshots (just say "take screenshots")
 
+- can open new windows/ desktop.
+- can minimize/maximize/close/open the windows on your command
+
 ## Setup
 
 ### 1. Install Python dependencies

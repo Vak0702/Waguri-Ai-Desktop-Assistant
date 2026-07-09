@@ -12,7 +12,7 @@ from collections import deque
 import config
 from core.intent_router import route, Intent
 from core.llm_client import LLMClient
-from skills import system_vitals, app_control, screen_analysis, media_control, file_ops, reminders_notes, screenshot, weather
+from skills import system_vitals, app_control, screen_analysis, media_control, file_ops, reminders_notes, screenshot, weather, window_control
 
 
 SYSTEM_PROMPT = """You are Waguri, a personal desktop AI voice assistant.
@@ -53,6 +53,8 @@ class Brain:
                 reply = screenshot.take_screenshot()
             elif routed.intent == Intent.WEATHER:
                 reply = self._handle_weather(routed.payload)
+            elif routed.intent == Intent.WINDOW_CONTROL:
+                reply = window_control.handle(routed.payload)
             elif routed.intent == Intent.MEDIA_CONTROL:
                 reply = media_control.handle(routed.payload["raw"])
             elif routed.intent == Intent.FILE_SEARCH:
@@ -95,8 +97,9 @@ class Brain:
             # confirmation mechanism used for destructive system actions.
             self._pending_confirmation = self._resolve_weather_consent
             return ("I don't have permission to check your location yet. I'd use your "
-                    "approximate location based on your IP address, not GPS. Say yes to "
-                    "allow it, or just tell me a specific city instead.")
+                    "device's location services if available, or your approximate "
+                    "IP-based location otherwise. Say yes to allow it, or just tell me "
+                    "a specific city instead.")
         elif consent is False:
             return ("I don't have permission to check your location. Say 'yes' to enable "
                     "it, or ask for the weather in a specific city.")

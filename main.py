@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import sys
 import time
+import random
 
 from PyQt6.QtCore import QThread, pyqtSignal, QTimer
 from PyQt6.QtWidgets import QApplication
@@ -30,7 +31,17 @@ from core.brain import Brain
 from core.intent_router import route, Intent
 from gui.main_window import MainWindow
 from gui.orb_widget import OrbState
-from skills import reminders_notes
+from skills import reminders_notes, system_vitals
+
+
+WAKE_GREETINGS = [
+    "Hey, I'm here.",
+    "Yes?",
+    "I'm listening.",
+    "Hi, what can I do for you?",
+    "Ready when you are.",
+    "Go ahead.",
+]
 
 
 class VoiceWorker(QThread):
@@ -76,6 +87,24 @@ class VoiceWorker(QThread):
 
         try:
             print("[Waguri] Wake word detected. Conversation started.")
+
+            # Greeting + quick proactive health check, once per wake trigger —
+            # stays brief on a normal day, only mentions specifics if something
+            # actually looks off (low battery, resource pressure, broken LLM
+            # connection) rather than reciting every metric every time.
+            self.orbStateChanged.emit(OrbState.THINKING)
+            greeting = random.choice(WAKE_GREETINGS)
+            health_issue = system_vitals.quick_health_check(
+                chat_available=self.brain.llm.chat_available,
+                vision_available=self.brain.llm.vision_available,
+            )
+            wake_reply = f"{greeting} {health_issue}" if health_issue else greeting
+            print(f"[Waguri] Wake greeting: '{wake_reply}'")
+
+            self.transcript.emit("Waguri", wake_reply)
+            self.orbStateChanged.emit(OrbState.SPEAKING)
+            self.tts.speak(wake_reply, amplitude_callback=lambda lvl: self.amplitudeUpdate.emit(lvl))
+
             silence_since = None  # tracks how long we've heard nothing, for auto-sleep
 
             while self._running and not self._muted:
@@ -257,7 +286,8 @@ if __name__ == "__main__":
         _log(f"[Waguri] Working directory: {os.getcwd()}")
         _log(f"[Waguri] Script directory: {os.path.dirname(os.path.abspath(__file__))}")
 
-        provider_keys = {"gemini": config.GEMINI_API_KEY, "groq": config.GROQ_API_KEY, "anthropic": config.ANTHROPIC_API_KEY}
+        provider_keys = {"gemini": config.GEMINI_API_KEY, "groq": config.GROQ_API_KEY,
+                          "anthropic": config.ANTHROPIC_API_KEY, "openrouter": config.OPENROUTER_API_KEY}
         if not provider_keys.get(config.CHAT_PROVIDER):
             _log(f"[Waguri] WARNING: No API key set for CHAT_PROVIDER '{config.CHAT_PROVIDER}' in .env.")
         if not provider_keys.get(config.VISION_PROVIDER):
