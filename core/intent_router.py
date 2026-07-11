@@ -31,6 +31,7 @@ class Intent(Enum):
     END_CONVERSATION = auto()  # user signals they're done talking to Waguri (not a PC power action)
     GUI_CONTROL = auto()       # Waguri's own window UI: fullscreen, minimize, minimal mode, mute
     WINDOW_CONTROL = auto()    # OTHER apps' windows: snap left/right, maximize/minimize, list
+    REFRESH_APPS = auto()      # rescan Start Menu for newly-installed apps mid-session
     CHAT = auto()              # fallback: general LLM conversation
 
 
@@ -45,6 +46,9 @@ _VITALS_PATTERNS = re.compile(
 )
 _OPEN_PATTERN = re.compile(r"\bopen\s+(.+)", re.I)
 _CLOSE_PATTERN = re.compile(r"\b(close|quit|kill)\s+(.+)", re.I)
+_REFRESH_APPS_PATTERN = re.compile(
+    r"\b(refresh|rescan|update) (my |the )?(app|application)s?( list)?\b", re.I
+)
 # Checked before _SCREEN_PATTERN since "screenshot" would otherwise also
 # get caught as a screen-analysis request. Whisper frequently transcribes
 # "screenshot" as two separate words ("screen shot"), so this matches both
@@ -266,6 +270,9 @@ def route(text: str) -> RoutedIntent:
     m = _FILE_SEARCH_PATTERN.search(t)
     if m:
         return RoutedIntent(Intent.FILE_SEARCH, {"raw": t, "query": t})
+
+    if _REFRESH_APPS_PATTERN.search(t):
+        return RoutedIntent(Intent.REFRESH_APPS, {"raw": t})
 
     m = _CLOSE_PATTERN.search(t)
     if m:

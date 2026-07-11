@@ -22,6 +22,7 @@ clear "not supported yet" message rather than a broken attempt.
 from __future__ import annotations
 
 import platform
+import time
 
 # Cached (hwnd, title) list from the last time windows were enumerated —
 # powers ordinal references like "switch to the second window" so the
@@ -187,33 +188,80 @@ def _find_window_by_name(target: str):
     return None
 
 
-def _focus_window(hwnd, title: str) -> str:
-    """Restores (if minimized) and brings a window to the foreground.
-    Shared by both name-based and ordinal-based switching."""
+def _force_foreground(hwnd) -> bool:
+    """Tries several increasingly-aggressive techniques to bring `hwnd` to
+    the foreground, since Windows' foreground-lock restriction can block a
+    plain SetForegroundWindow call from a background process. Returns True
+    if any technique reports success."""
     import win32gui
     import win32con
     import win32process
     import win32api
 
+    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+
+    # Technique 1: plain call — works when there's no foreground lock in effect.
     try:
-        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.SetForegroundWindow(hwnd)
+        return True
+    except Exception:
+        pass
+
+    # Technique 2: simulate a real ALT key press first. Windows relaxes the
+    # foreground-lock restriction shortly after genuine input events, so a
+    # synthetic Alt press/release bracketing the call is the standard,
+    # most broadly effective workaround for this exact restriction.
+    try:
+        win32api.keybd_event(win32con.VK_MENU, 0, 0, 0)
+        win32gui.SetForegroundWindow(hwnd)
+        win32api.keybd_event(win32con.VK_MENU, 0, win32con.KEYEVENTF_KEYUP, 0)
+        return True
+    except Exception:
+        pass
+
+    # Technique 3: briefly attach our input thread to the target window's
+    # thread, which also grants permission for the focus change.
+    try:
+        current_thread = win32api.GetCurrentThreadId()
+        target_thread, _ = win32process.GetWindowThreadProcessId(hwnd)
+        win32process.AttachThreadInput(current_thread, target_thread, True)
         try:
             win32gui.SetForegroundWindow(hwnd)
-        except Exception:
-            # Windows sometimes blocks SetForegroundWindow from a background
-            # process (the "foreground lock" restriction) — this is the
-            # standard workaround: briefly attach our input thread to the
-            # target window's thread so the OS permits the focus change.
-            current_thread = win32api.GetCurrentThreadId()
-            target_thread, _ = win32process.GetWindowThreadProcessId(hwnd)
-            win32process.AttachThreadInput(current_thread, target_thread, True)
-            try:
-                win32gui.SetForegroundWindow(hwnd)
-            finally:
-                win32process.AttachThreadInput(current_thread, target_thread, False)
+            return True
+        finally:
+            win32process.AttachThreadInput(current_thread, target_thread, False)
+    except Exception:
+        pass
+
+    return False
+
+
+def _focus_window(hwnd, title: str) -> str:
+    """Restores (if minimized) and brings a window to the foreground.
+    Shared by both name-based and ordinal-based switching."""
+    import win32gui
+
+    if not win32gui.IsWindow(hwnd):
+        return f"That window ('{title}') doesn't seem to exist anymore — try listing your windows again."
+
+    # Dismiss any active shell overlay first (Task View, Start Menu,
+    # Alt-Tab view). These are special topmost surfaces that can silently
+    # swallow/override a foreground-change request from another process —
+    # the call can "succeed" with no error, but the overlay just stays
+    # visually on top, making it look like nothing happened.
+    try:
+        import keyboard
+        keyboard.send("esc")
+        time.sleep(0.15)
+    except Exception:
+        pass
+
+    success = _force_foreground(hwnd)
+    if success:
         return f"Switched to {title}."
-    except Exception as e:
-        return f"I couldn't switch to that window — {e}"
+    return (f"I found {title}, but Windows wouldn't let me bring it to the front. "
+            f"It might be on a different virtual desktop — try switching desktops first, "
+            f"or bring it up manually.")
 
 
 def _switch_to_window(target: str) -> str:

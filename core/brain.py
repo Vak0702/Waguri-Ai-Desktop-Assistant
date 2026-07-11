@@ -12,7 +12,7 @@ from collections import deque
 import config
 from core.intent_router import route, Intent
 from core.llm_client import LLMClient
-from skills import system_vitals, app_control, screen_analysis, media_control, file_ops, reminders_notes, screenshot, weather, window_control
+from skills import system_vitals, app_control, screen_analysis, media_control, file_ops, reminders_notes, screenshot, weather, window_control, app_discovery
 
 
 SYSTEM_PROMPT = """You are Waguri, a personal desktop AI voice assistant.
@@ -55,6 +55,9 @@ class Brain:
                 reply = self._handle_weather(routed.payload)
             elif routed.intent == Intent.WINDOW_CONTROL:
                 reply = window_control.handle(routed.payload)
+            elif routed.intent == Intent.REFRESH_APPS:
+                count = app_discovery.refresh()
+                reply = f"Done — I found {count} installed apps."
             elif routed.intent == Intent.MEDIA_CONTROL:
                 reply = media_control.handle(routed.payload["raw"])
             elif routed.intent == Intent.FILE_SEARCH:

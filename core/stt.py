@@ -31,10 +31,18 @@ class SpeechToText:
         self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
         self.sample_rate = 16000
 
-    def record_until_silence(self, silence_threshold: float = 0.01,
+    def record_until_silence(self, silence_threshold: float = None,
                               silence_duration: float = 1.2,
                               max_duration: float = 15.0) -> np.ndarray:
-        """Records from the default mic until the user stops talking."""
+        """Records from the default mic until the user stops talking.
+        If silence_threshold isn't given, it's calibrated against your
+        room's actual background noise right before recording, instead of
+        using one fixed number that's either too sensitive (picks up hum/
+        fan noise as "still talking") or not sensitive enough (clips the
+        tail end of quieter words)."""
+        if silence_threshold is None:
+            silence_threshold = self._calibrate_silence_threshold()
+
         q: queue.Queue = queue.Queue()
 
         def callback(indata, frames, time_info, status):
@@ -64,21 +72,44 @@ class SpeechToText:
 
         return np.concatenate(recorded, axis=0).flatten()
 
+    def _calibrate_silence_threshold(self, sample_seconds: float = 0.3) -> float:
+        """Briefly samples ambient background noise (fan hum, room tone,
+        etc.) right before recording, and sets the silence cutoff just
+        above that level. Adds a small, mostly imperceptible delay each
+        turn in exchange for adapting to whatever room/mic you're actually
+        using, rather than one fixed guess that works for nobody's setup
+        exactly."""
+        try:
+            samples = sd.rec(int(sample_seconds * self.sample_rate),
+                              samplerate=self.sample_rate, channels=1, dtype="float32")
+            sd.wait()
+            ambient_rms = float(np.sqrt(np.mean(samples ** 2)))
+            return max(0.01, ambient_rms * 3.0)
+        except Exception:
+            return 0.01  # safe fallback to the old fixed default
+
     def transcribe_once(self) -> str:
         """Record one utterance and return the transcribed text."""
         audio = self.record_until_silence()
         audio = self._reduce_noise(audio)
 
-        # initial_prompt biases Whisper's decoding toward vocabulary it's
-        # likely to hear — this measurably reduces mishearing app names
-        # (e.g. "spotify" -> "sportify") since the model now has those
-        # exact words as context going in.
-        vocab = ", ".join(known_app_names())
-        initial_prompt = (
-            "Voice assistant commands: open, close, battery, CPU, RAM, disk, "
-            "volume, what's on my screen, remind me, shut down, restart, "
-            f"lock screen. App names: {vocab}."
-        )
+        initial_prompt = None
+        if config.ENABLE_VOCAB_BIASING:
+            # initial_prompt biases Whisper's decoding toward vocabulary
+            # it's likely to hear — this measurably reduces mishearing app
+            # names (e.g. "spotify" -> "sportify"). Capped at a reasonable
+            # size: auto-discovered Start Menu apps can number in the
+            # hundreds, and stuffing all of them in here would dilute the
+            # biasing signal rather than help. Fuzzy correction elsewhere
+            # still checks against the *full* list — this cap only affects
+            # what Whisper sees as up-front context.
+            all_names = known_app_names()
+            vocab = ", ".join(all_names[:40])
+            initial_prompt = (
+                "Voice assistant commands: open, close, battery, CPU, RAM, disk, "
+                "volume, what's on my screen, remind me, shut down, restart, "
+                f"lock screen. App names: {vocab}."
+            )
 
         segments, _info = self.model.transcribe(
             audio, language="en", beam_size=5,
@@ -95,9 +126,15 @@ class SpeechToText:
         hum, hiss) that can otherwise get transcribed as garbage or subtly
         distort nearby words. Fails safe: if noisereduce isn't installed or
         errors on this clip, the original audio is used unmodified."""
+        if not config.ENABLE_NOISE_REDUCTION:
+            return audio
         try:
             import noisereduce as nr
-            return nr.reduce_noise(y=audio, sr=self.sample_rate, stationary=False)
+            # prop_decrease < 1.0 is deliberately less aggressive than the
+            # default full-strength reduction — cutting noise all the way
+            # can distort speech that shares frequency content with it.
+            return nr.reduce_noise(y=audio, sr=self.sample_rate,
+                                    stationary=False, prop_decrease=0.8)
         except Exception:
             return audio
 

@@ -100,15 +100,21 @@ def _resolve(target: str) -> str:
 
 
 def known_app_names() -> list[str]:
-    """All recognized app name aliases for the current platform. Used
-    elsewhere (STT vocabulary biasing, fuzzy correction of near-miss
-    transcriptions like 'sportify' -> 'spotify') so the app-name list only
-    has to be maintained in one place."""
+    """All recognized app name aliases for the current platform, plus
+    anything auto-discovered from Start Menu shortcuts. Used elsewhere
+    (STT vocabulary biasing, fuzzy correction of near-miss transcriptions
+    like 'sportify' -> 'spotify') so the app-name list only has to be
+    maintained/discovered in one place."""
     plat = _platform_key()
     names = set(APP_ALIASES.get(plat, {}).keys())
     if plat == "windows":
         names.update(WINDOWS_KNOWN_PATHS.keys())
         names.update(WINDOWS_PROCESS_NAMES.keys())
+        try:
+            from skills import app_discovery
+            names.update(app_discovery.get_installed_apps().keys())
+        except Exception:
+            pass  # discovery is a bonus, never block on it failing
     return sorted(names)
 
 
@@ -135,7 +141,17 @@ def open_app(target: str) -> str:
                 subprocess.Popen([known_path])
                 return f"Opening {target}."
 
-            # 2. Fall back to letting Windows resolve it via PATH / the
+            # 2. Auto-discovered from the Start Menu index (via Windows'
+            #    own Get-StartApps) — covers virtually anything installed,
+            #    including Microsoft Store/UWP apps like Netflix that don't
+            #    have a plain .exe you can point to directly.
+            from skills import app_discovery
+            app_id = app_discovery.find_app_id(resolved) or app_discovery.find_app_id(target)
+            if app_id:
+                app_discovery.launch(app_id)
+                return f"Opening {target}."
+
+            # 3. Last resort: let Windows resolve it via PATH / the
             #    App Paths registry. Quoting matters here: `start` treats
             #    the first quoted argument as a window title, so we pass
             #    an empty title explicitly, then the actual target quoted.
