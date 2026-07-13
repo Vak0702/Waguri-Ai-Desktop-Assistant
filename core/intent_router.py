@@ -32,6 +32,8 @@ class Intent(Enum):
     GUI_CONTROL = auto()       # Waguri's own window UI: fullscreen, minimize, minimal mode, mute
     WINDOW_CONTROL = auto()    # OTHER apps' windows: snap left/right, maximize/minimize, list
     REFRESH_APPS = auto()      # rescan Start Menu for newly-installed apps mid-session
+    SYSTEM_TOGGLE = auto()     # Wi-Fi, Bluetooth, Do Not Disturb
+    QUICK_MATH = auto()        # arithmetic, percentages, unit conversions — no LLM needed
     CHAT = auto()              # fallback: general LLM conversation
 
 
@@ -48,6 +50,27 @@ _OPEN_PATTERN = re.compile(r"\bopen\s+(.+)", re.I)
 _CLOSE_PATTERN = re.compile(r"\b(close|quit|kill)\s+(.+)", re.I)
 _REFRESH_APPS_PATTERN = re.compile(
     r"\b(refresh|rescan|update) (my |the )?(app|application)s?( list)?\b", re.I
+)
+_WIFI_ON_PATTERN = re.compile(r"\b(turn on|enable) wi-?fi\b", re.I)
+_WIFI_OFF_PATTERN = re.compile(r"\b(turn off|disable) wi-?fi\b", re.I)
+_BLUETOOTH_ON_PATTERN = re.compile(r"\b(turn on|enable) bluetooth\b", re.I)
+_BLUETOOTH_OFF_PATTERN = re.compile(r"\b(turn off|disable) bluetooth\b", re.I)
+_DND_ON_PATTERN = re.compile(r"\b(turn on|enable) do not disturb\b", re.I)
+_DND_OFF_PATTERN = re.compile(r"\b(turn off|disable) do not disturb\b", re.I)
+
+_PERCENT_PATTERN = re.compile(
+    r"what'?s?\s+(?:is\s+)?(\d+(?:\.\d+)?)\s*(?:%|percent)\s+of\s+(\d+(?:\.\d+)?)", re.I
+)
+_CONVERT_PATTERN = re.compile(
+    r"convert\s+(\d+(?:\.\d+)?)\s*([a-zA-Z ]+?)\s+(?:to|into)\s+([a-zA-Z ]+?)(?:\?|$|\.)", re.I
+)
+# Broad trigger: if a number-operator-number pattern appears anywhere, treat
+# the whole utterance as a calculation candidate — quick_math.calculate()
+# does its own careful normalization/extraction rather than needing this
+# regex to capture exact boundaries.
+_CALC_TRIGGER_PATTERN = re.compile(
+    r"\b\d+(?:\.\d+)?\s*(times|multiplied by|divided by|plus|added to|minus|"
+    r"subtracted from|to the power of|\+|-|\*|/)\s*\d+(?:\.\d+)?", re.I
 )
 # Checked before _SCREEN_PATTERN since "screenshot" would otherwise also
 # get caught as a screen-analysis request. Whisper frequently transcribes
@@ -273,6 +296,39 @@ def route(text: str) -> RoutedIntent:
 
     if _REFRESH_APPS_PATTERN.search(t):
         return RoutedIntent(Intent.REFRESH_APPS, {"raw": t})
+
+    if _WIFI_ON_PATTERN.search(t):
+        return RoutedIntent(Intent.SYSTEM_TOGGLE, {"raw": t, "action": "wifi_on"})
+    if _WIFI_OFF_PATTERN.search(t):
+        return RoutedIntent(Intent.SYSTEM_TOGGLE, {"raw": t, "action": "wifi_off"})
+    if _BLUETOOTH_ON_PATTERN.search(t):
+        return RoutedIntent(Intent.SYSTEM_TOGGLE, {"raw": t, "action": "bluetooth_on"})
+    if _BLUETOOTH_OFF_PATTERN.search(t):
+        return RoutedIntent(Intent.SYSTEM_TOGGLE, {"raw": t, "action": "bluetooth_off"})
+    if _DND_ON_PATTERN.search(t):
+        return RoutedIntent(Intent.SYSTEM_TOGGLE, {"raw": t, "action": "dnd_on"})
+    if _DND_OFF_PATTERN.search(t):
+        return RoutedIntent(Intent.SYSTEM_TOGGLE, {"raw": t, "action": "dnd_off"})
+
+    percent_match = _PERCENT_PATTERN.search(t)
+    if percent_match:
+        return RoutedIntent(Intent.QUICK_MATH, {
+            "raw": t, "mode": "percentage",
+            "percent": float(percent_match.group(1)),
+            "base": float(percent_match.group(2)),
+        })
+
+    convert_match = _CONVERT_PATTERN.search(t)
+    if convert_match:
+        return RoutedIntent(Intent.QUICK_MATH, {
+            "raw": t, "mode": "convert",
+            "amount": float(convert_match.group(1)),
+            "from_unit": convert_match.group(2).strip(),
+            "to_unit": convert_match.group(3).strip(),
+        })
+
+    if _CALC_TRIGGER_PATTERN.search(t):
+        return RoutedIntent(Intent.QUICK_MATH, {"raw": t, "mode": "calculate"})
 
     m = _CLOSE_PATTERN.search(t)
     if m:

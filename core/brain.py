@@ -12,7 +12,7 @@ from collections import deque
 import config
 from core.intent_router import route, Intent
 from core.llm_client import LLMClient
-from skills import system_vitals, app_control, screen_analysis, media_control, file_ops, reminders_notes, screenshot, weather, window_control, app_discovery
+from skills import system_vitals, app_control, screen_analysis, media_control, file_ops, reminders_notes, screenshot, weather, window_control, app_discovery, system_toggles, quick_math
 
 
 SYSTEM_PROMPT = """You are Waguri, a personal desktop AI voice assistant.
@@ -58,6 +58,10 @@ class Brain:
             elif routed.intent == Intent.REFRESH_APPS:
                 count = app_discovery.refresh()
                 reply = f"Done — I found {count} installed apps."
+            elif routed.intent == Intent.SYSTEM_TOGGLE:
+                reply = self._handle_system_toggle(routed.payload["action"])
+            elif routed.intent == Intent.QUICK_MATH:
+                reply = quick_math.handle(routed.payload)
             elif routed.intent == Intent.MEDIA_CONTROL:
                 reply = media_control.handle(routed.payload["raw"])
             elif routed.intent == Intent.FILE_SEARCH:
@@ -114,6 +118,23 @@ class Brain:
         if confirmed:
             return weather.get_weather_for_current_location()
         return "Okay, I won't check your location. You can always ask for weather in a specific city."
+
+    # ---------- system toggles: Wi-Fi, Bluetooth, Do Not Disturb ----------
+
+    def _handle_system_toggle(self, action: str) -> str:
+        if action == "wifi_on":
+            return system_toggles.set_wifi(True)
+        elif action == "wifi_off":
+            return system_toggles.set_wifi(False)
+        elif action == "bluetooth_on":
+            return system_toggles.set_bluetooth(True)
+        elif action == "bluetooth_off":
+            return system_toggles.set_bluetooth(False)
+        elif action == "dnd_on":
+            return system_toggles.set_do_not_disturb(True)
+        elif action == "dnd_off":
+            return system_toggles.set_do_not_disturb(False)
+        return "I didn't understand that."
 
     # ---------- destructive action confirmation flow ----------
 

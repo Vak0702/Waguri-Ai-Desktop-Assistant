@@ -40,6 +40,10 @@ running on free API tiers by default.
   provider outage takes everything down
 - 🔇 Noise-reduced, vocabulary-biased, fuzzy-corrected speech recognition
 
+- can assist you in simple mathematics calculation
+
+- can hit your bluetooth on your command
+
 ## Setup
 
 ### 1. Install Python dependencies

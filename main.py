@@ -241,8 +241,16 @@ class WaguriApp:
         self.reminder_timer.start(30_000)  # every 30 seconds
 
     def _check_reminders(self):
+        from skills import system_toggles
+
         due = reminders_notes.check_due_reminders()
         for text in due:
+            if system_toggles.is_dnd_enabled():
+                # Still logged to the transcript for later reference, but
+                # no spoken interruption or tray popup while DND is on.
+                self.window.append_log("Waguri", f"(Do Not Disturb) Reminder: {text}")
+                continue
+
             self.window.append_log("Waguri", f"Reminder: {text}")
             self.window.set_orb_state(OrbState.SPEAKING)
             self.worker.tts.speak(f"Reminder: {text}")
